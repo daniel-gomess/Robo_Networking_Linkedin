@@ -1,19 +1,22 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import *
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
 from time import sleep
+#import random
+import pyperclip
+import pyautogui
 
 def iniciar_driver():
     chrome_options = Options()
-    arguments = ['--lang=pt-BR', '--window-size=1200,800', '--incognito']
-    for argument in arguments:
-        chrome_options.add_argument(argument)
+    chrome_options.add_argument('--lang=pt-BR')
+    chrome_options.add_argument('--window-size=1200,800')
+    chrome_options.add_argument('--incognito')
+    chrome_options.add_argument('--disable-gpu')
 
     chrome_options.add_experimental_option('prefs', {
         'profile.default_content_setting_values.notifications': 2,
@@ -24,29 +27,28 @@ def iniciar_driver():
         service=ChromeService(ChromeDriverManager().install()),
         options=chrome_options
     )
-
     wait = WebDriverWait(driver, 15)
     return driver, wait
 
-def login_linkedin(email, senha):
+
+def login_linkedin(email, senha, log_fn):
     driver, wait = iniciar_driver()
     driver.get('https://www.linkedin.com/login')
-    driver.maximize_window()
     sleep(3)
+    # driver.maximize_window()
+    # sleep(2)
 
     try:
         wait.until(EC.presence_of_element_located((By.ID, 'username'))).send_keys(email)
         wait.until(EC.presence_of_element_located((By.ID, 'password'))).send_keys(senha + Keys.RETURN)
-
-        print("\u2705 Login realizado com sucesso.")
+        log_fn("\u2705 Login realizado com sucesso.")
         return driver, wait
-
     except Exception as e:
-        print(f"\u274C Erro ao logar: {e}")
+        log_fn(f"❌ Erro ao logar: {e}")
         driver.quit()
         return None, None
 
-def buscar_e_conectar(driver, wait, termo_pesquisa):
+def buscar_e_conectar(driver, wait, termo_pesquisa, log_fn, limite_conexoes=20):
     try:
         campo_pesquisa = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Pesquisar')]")))
         campo_pesquisa.clear()
@@ -56,72 +58,77 @@ def buscar_e_conectar(driver, wait, termo_pesquisa):
 
         botao_pessoas = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'search-reusables__filter-pill-button') and contains(., 'Pessoas')]")))
         botao_pessoas.click()
-        print("\U0001f465 Aba 'Pessoas' clicada.")
+        log_fn("\U0001F465 Aba 'Pessoas' clicada.")
         sleep(3)
 
-        while True:
+        conexoes_realizadas = 0
+
+        while conexoes_realizadas < limite_conexoes:
             sleep(2)
-            conexoes = driver.find_elements(By.XPATH, '//button[contains(text(), "Conectar")]')
-            nomes = driver.find_elements(By.XPATH, '//span[contains(@dir, "ltr") and contains(@class, "entity-result__title-text")]')
+            perfis = driver.find_elements(By.XPATH, '//li[@class="nrxCTNBwEvLjnjUMRDlltdOsOQfMBkCNfDFxZfpE"]')
 
-            print(f"\U0001f465 Encontradas {len(conexoes)} conexões possíveis nesta página.")
+            novas_conexoes = 0
 
-            for i in range(len(conexoes)):
+            for perfil in perfis:
+                if conexoes_realizadas >= limite_conexoes:
+                    break
+
                 try:
-                    nome = nomes[i].text.split("\n")[0].strip()
-                    mensagem = f"Olá {nome}, estou buscando conexões com profissionais da área de {termo_pesquisa} para aumentar minhas conexões, expandir meu networking e trocar experiências. Gostaria de me conectar com você!"
+                    nome_elem = perfil.find_element(By.XPATH, './/span[contains(@dir, "ltr")]')
+                    nome = nome_elem.text.strip().split('\n')[0]
 
-                    driver.execute_script("arguments[0].scrollIntoView(true);", conexoes[i])
                     sleep(1)
-                    conexoes[i].click()
-                    sleep(2)
+
+                    botao_conectar = perfil.find_element(By.XPATH, '//span[@class="artdeco-button__text" and text()="Conectar"]')
+                    sleep(1)
+                    botao_conectar.click()
+                    sleep(1)
 
                     try:
-                        adicionar_nota = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="Adicionar nota"]')))
-                        adicionar_nota.click()
+                        botao_adicionar_nota = driver.find_element(By.XPATH, '//button[@aria-label="Adicionar nota"]')
+                        botao_adicionar_nota.click()
                         sleep(1)
 
-                        caixa_mensagem = wait.until(EC.presence_of_element_located((By.ID, 'custom-message')))
+                        caixa_mensagem = driver.find_element(By.ID, 'custom-message')
+                        caixa_mensagem.click()
+                        mensagem = f"Olá {nome}, Tudo bem? Estou buscando conexões com profissionais da área de Python, um pouco mais especificamente {termo_pesquisa} . Gostaria de me conectar com você!"
+                        caixa_mensagem.clear()
                         caixa_mensagem.send_keys(mensagem)
-
-                        enviar = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="Enviar agora"]')))
-                        enviar.click()
-
-                        print(f"\u2705 Conexão enviada para {nome}")
-
+                        sleep(0.5)
+                        
+                        botao_enviar = driver.find_element(By.XPATH, '//button[@aria-label="Enviar convite"]')
+                        botao_enviar.click()
+                        sleep(1)
                     except:
-                        print(f"\u26a0\ufe0f Conexão enviada sem nota para {nome}")
-                        enviar_simples = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="Enviar"]')))
-                        enviar_simples.click()
+                        botao_enviar = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="Enviar"]')))
+                        botao_enviar.click()
+                        sleep(1.5)
 
+                    conexoes_realizadas += 1
+                    novas_conexoes += 1
+                    log_fn(f"🤝 {nome} foi adicionado com êxito! ({conexoes_realizadas}/{limite_conexoes})")
                     sleep(2)
 
-                except Exception as e:
-                    print(f"\u274C Erro ao tentar conectar com {nome if 'nome' in locals() else 'desconhecido'}: {e}")
+                except Exception:
                     continue
 
-            try:
-                proximo = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="Avançar"]')))
-                driver.execute_script("arguments[0].scrollIntoView(true);", proximo)
-                proximo.click()
-                print("\u27a1️ Próxima página clicada.")
-                sleep(4)
-            except:
-                print("🏋️ Fim das páginas ou botão 'Próximo' não encontrado.")
+            if novas_conexoes == 0:
+                log_fn("⚠️ Nenhuma nova conexão encontrada nesta página.")
                 break
 
+            try:
+                botao_proximo = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="Avançar"]')))
+                driver.execute_script("arguments[0].scrollIntoView(true);", botao_proximo)
+                botao_proximo.click()
+                log_fn("➡️ Próxima página clicada.")
+                sleep(4)
+            except:
+                log_fn("🏋️ Fim das páginas ou botão 'Próximo' não encontrado.")
+                break
+
+        log_fn(f"✅ Processo finalizado. Total de conexões feitas: {conexoes_realizadas}")
+
     except Exception as e:
-        print(f"\u274C Erro durante a busca: {e}")
+        log_fn(f"❌ Erro durante a busca: {e}")
         driver.quit()
 
-# =========================
-# 🔽 EXECUÇÃO DO SCRIPT 🔽
-# =========================
-if __name__ == "__main__":
-    email = "SEU_EMAIL"
-    senha = "SUA_SENHA"
-    termo_busca = "Desenvolvedor Python"  # Defina aqui o termo desejado
-
-    driver, wait = login_linkedin(email, senha)
-    if driver and wait:
-        buscar_e_conectar(driver, wait, termo_busca)
